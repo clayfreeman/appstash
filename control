@@ -1,0 +1,10 @@
+Package: com.clayfreeman.appstash
+Name: appstash
+Depends: 
+Version: 0.0.1
+Architecture: iphoneos-arm
+Description: An awesome tool of some sort!!
+Maintainer: Clay Freeman
+Author: Clay Freeman
+Section: System
+Tag: role::hacker

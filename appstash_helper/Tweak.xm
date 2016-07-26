@@ -1,5 +1,7 @@
 #include <CoreFoundation/CoreFoundation.h>
 
+extern "C" CFNotificationCenterRef CFNotificationCenterGetDistributedCenter();
+
 @interface MIContainer : NSObject
 @end
 
@@ -23,12 +25,18 @@ void receiveAppInstallNotification(CFNotificationCenterRef center,
     CFDictionaryRef userInfo) {
   // Log when receiving a notification
   NSLog(@"Received notification 'com.clayfreeman.appstash.install'");
+  // Trigger response notification
+  NSLog(@"Posting install response notification...\n");
+  CFNotificationCenterPostNotification(
+    CFNotificationCenterGetDistributedCenter(),
+    CFSTR("com.clayfreeman.appstash.installresponse"), NULL,
+    NULL, true);
 }
 
 %ctor {
   // Register function `receiveAppInstallNotification` for notification
   // `com.clayfreeman.appstash.install` in the Darwin notification center
-  CFNotificationCenterAddObserver(CFNotificationCenterGetDarwinNotifyCenter(),
+  CFNotificationCenterAddObserver(CFNotificationCenterGetDistributedCenter(),
     NULL, receiveAppInstallNotification,
     CFSTR("com.clayfreeman.appstash.install"), NULL,
     CFNotificationSuspensionBehaviorDeliverImmediately);

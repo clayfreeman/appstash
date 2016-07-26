@@ -1,4 +1,4 @@
-TARGET = iphone:9.3
+TARGET = iphone:9.0
 
 include $(THEOS)/makefiles/common.mk
 

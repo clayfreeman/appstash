@@ -9,19 +9,22 @@ void receiveAppInstallResponseNotification(CFNotificationCenterRef center,
   // Log when receiving a notification
   fprintf(stderr, "Received notification "
     "'com.clayfreeman.appstash.installresponse'\n");
+  // Retreive the path supplied in the userInfo dictionary
+  NSString* path = [(NSDictionary*)userInfo objectForKey:@"application-path"];
+  fprintf(stderr, "path: %s\n", [path UTF8String]);
   exit(0);
 }
 
 int main(int argc, char **argv) {
   if (argc > 1) {
     // Register function `receiveAppInstallResponseNotification` for
-    // notification `com.clayfreeman.appstash.install-respose` in the Darwin
+    // notification `com.clayfreeman.appstash.installrespose` in the Darwin
     // notification center
     CFNotificationCenterAddObserver(CFNotificationCenterGetDistributedCenter(),
       NULL, receiveAppInstallResponseNotification,
       CFSTR("com.clayfreeman.appstash.installresponse"), NULL,
       CFNotificationSuspensionBehaviorDeliverImmediately);
-    NSString*     path = [NSString stringWithCString:argv[0]
+    NSString*     path = [NSString stringWithCString:argv[1]
       encoding:NSASCIIStringEncoding];
     NSDictionary* info = [NSDictionary dictionaryWithObjectsAndKeys:
       path, @"application-path", nil];
@@ -31,8 +34,7 @@ int main(int argc, char **argv) {
       CFSTR("com.clayfreeman.appstash.install"), NULL,
       (CFDictionaryRef)info, true);
     CFRunLoopRun();
-    return 0;
-  }
+  } fprintf(stderr, "Please specify the path to the staged application.\n");
   return 1;
 }
 

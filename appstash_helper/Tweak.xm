@@ -25,12 +25,16 @@ void receiveAppInstallNotification(CFNotificationCenterRef center,
     CFDictionaryRef userInfo) {
   // Log when receiving a notification
   NSLog(@"Received notification 'com.clayfreeman.appstash.install'");
-  // Trigger response notification
+  // Retreive the path supplied in the userInfo dictionary
+  NSString* path = [(NSDictionary*)userInfo objectForKey:@"application-path"];
+  // Trigger response notification and pass through userInfo path
+  NSDictionary* info = [NSDictionary dictionaryWithObjectsAndKeys:
+    path, @"application-path", nil];
   NSLog(@"Posting install response notification...\n");
   CFNotificationCenterPostNotification(
     CFNotificationCenterGetDistributedCenter(),
     CFSTR("com.clayfreeman.appstash.installresponse"), NULL,
-    NULL, true);
+    (CFDictionaryRef)info, true);
 }
 
 %ctor {

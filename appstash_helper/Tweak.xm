@@ -20,9 +20,8 @@ extern "C" CFNotificationCenterRef CFNotificationCenterGetDistributedCenter();
   validatedByFreeProfile: (bool)          validatedByFreeProfile;
 @end
 
-void receiveAppInstallNotification(CFNotificationCenterRef center,
-    void *observer, CFStringRef name, const void *object,
-    CFDictionaryRef userInfo) {
+void receiveAppInstallNotification(CFNotificationCenterRef, void*, CFStringRef,
+    const void*, CFDictionaryRef userInfo) {
   // Log when receiving a notification
   NSLog(@"Received notification 'com.clayfreeman.appstash.install'");
   // Retreive the path supplied in the userInfo dictionary

@@ -9,10 +9,17 @@ void receiveAppInstallResponseNotification(CFNotificationCenterRef, void*,
   // Log when receiving a notification
   fprintf(stderr, "Received notification "
     "'com.clayfreeman.appstash.installresponse'\n");
-  // Retreive the path supplied in the userInfo dictionary
-  NSString* path = [(NSDictionary*)userInfo objectForKey:@"application-path"];
-  fprintf(stderr, "path: %s\n", [path UTF8String]);
-  exit(0);
+  // Retreive the status and error information from the user info
+  bool          success =
+    [[(__bridge NSDictionary*)userInfo objectForKey:@"success"] boolValue];
+  // NSDictionary* receipt =
+  //   [ (__bridge NSDictionary*)userInfo objectForKey:@"receipt"];
+  NSString*     error   =
+    [ (__bridge NSDictionary*)userInfo objectForKey:@"error"];
+  if (success == NO) {
+    fprintf(stderr, "ERROR: %s\n", [error UTF8String]);
+    exit(1);
+  } else fprintf(stderr, "Success\n"), exit(0);
 }
 
 int main(int argc, char **argv) {
@@ -46,7 +53,7 @@ int main(int argc, char **argv) {
       CFNotificationCenterPostNotification(
         CFNotificationCenterGetDistributedCenter(),
         CFSTR("com.clayfreeman.appstash.install"), NULL,
-        (CFDictionaryRef)info, true);
+        (__bridge CFDictionaryRef)info, true);
       // Continue in a CF run loop while waiting for a response
       CFRunLoopRun();
     } else fprintf(stderr, "Could not start com.apple.mobile.installd\n");

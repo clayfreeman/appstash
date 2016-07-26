@@ -2,11 +2,22 @@
 
 extern "C" CFNotificationCenterRef CFNotificationCenterGetDistributedCenter();
 
+@interface MIClientConnection : NSObject
+@end
+
 @interface MIContainer : NSObject
 @end
 
 @interface MIExecutableBundle : NSObject
 @property(readonly, copy) NSString *identifier;
+@end
+
+@interface MIInstaller : NSObject
+@property(readonly) NSDictionary *receipt;
++(MIInstaller*) installerForURL: (NSURL*)              url
+                withOptions:     (NSDictionary*)       options
+                forClient:       (MIClientConnection*) client;
+-(bool) performInstallationWithError:(NSError**)err;
 @end
 
 @interface MICodeSigningInfo : NSObject
@@ -24,16 +35,32 @@ void receiveAppInstallNotification(CFNotificationCenterRef, void*, CFStringRef,
     const void*, CFDictionaryRef userInfo) {
   // Log when receiving a notification
   NSLog(@"Received notification 'com.clayfreeman.appstash.install'");
-  // Retreive the path supplied in the userInfo dictionary
-  NSString* path = [(NSDictionary*)userInfo objectForKey:@"application-path"];
+  // Instantiate the MIInstaller class with the provided application path
+  MIInstaller* installer = [NSClassFromString(@"MIInstaller")
+    installerForURL: [NSURL fileURLWithPath:[(__bridge NSDictionary*)userInfo
+      objectForKey:@"application-path"]]
+    withOptions:     [NSDictionary dictionary]
+    forClient:       nil];
+  NSError*      err     = nil;
+  // Attempt the installation, expect a success indicator and potentially
+  // populated `NSError` instance
+  NSNumber*     success =
+    [NSNumber numberWithBool:[installer performInstallationWithError:&err]];
+  NSDictionary* receipt =
+    [installer.receipt isKindOfClass:[NSDictionary class]] ? installer.receipt :
+    [NSDictionary dictionary];
+  NSString*     error   =
+    [err isKindOfClass:[NSError class]] ? [err localizedDescription] : @"";
   // Trigger response notification and pass through userInfo path
   NSDictionary* info = [NSDictionary dictionaryWithObjectsAndKeys:
-    path, @"application-path", nil];
-  NSLog(@"Posting install response notification...\n");
+    success, @"success",
+    receipt, @"receipt",
+    error,   @"error",   nil];
+  NSLog(@"Posting install response notification...\n%@", info);
   CFNotificationCenterPostNotification(
     CFNotificationCenterGetDistributedCenter(),
     CFSTR("com.clayfreeman.appstash.installresponse"), NULL,
-    (CFDictionaryRef)info, true);
+    (__bridge CFDictionaryRef)info, true);
 }
 
 %ctor {
@@ -45,6 +72,10 @@ void receiveAppInstallNotification(CFNotificationCenterRef, void*, CFStringRef,
     CFNotificationSuspensionBehaviorDeliverImmediately);
   NSLog(@"Registered for notification 'com.clayfreeman.appstash.install'");
 }
+
+%hook MICodeSigningVerifier
+
+%end
 
 %hook MICodeSigningVerifier
 -(bool) performValidationWithError:(NSError**)err {

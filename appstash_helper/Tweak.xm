@@ -56,11 +56,11 @@ void receiveAppInstallNotification(CFNotificationCenterRef, void*, CFStringRef,
     success, @"success",
     receipt, @"receipt",
     error,   @"error",   nil];
-  NSLog(@"Posting install response notification...\n%@", info);
   CFNotificationCenterPostNotification(
     CFNotificationCenterGetDistributedCenter(),
     CFSTR("com.clayfreeman.appstash.installresponse"), NULL,
     (__bridge CFDictionaryRef)info, true);
+  NSLog(@"Posted notification 'com.clayfreeman.appstash.installresponse'");
 }
 
 %ctor {

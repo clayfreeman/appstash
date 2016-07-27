@@ -1,3 +1,5 @@
+// MIUninstaller
+
 #import <CoreFoundation/CoreFoundation.h>
 #import <Foundation/Foundation.h>
 #import <Foundation/NSTask.h>

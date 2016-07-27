@@ -36,9 +36,10 @@ void receiveAppInstallNotification(CFNotificationCenterRef, void*, CFStringRef,
   // Log when receiving a notification
   NSLog(@"Received notification 'com.clayfreeman.appstash.install'");
   // Instantiate the MIInstaller class with the provided application path
+  NSString* oldPath = [(__bridge NSDictionary*)userInfo
+    objectForKey:@"application-path"];
   MIInstaller* installer = [NSClassFromString(@"MIInstaller")
-    installerForURL: [NSURL fileURLWithPath:[(__bridge NSDictionary*)userInfo
-      objectForKey:@"application-path"]]
+    installerForURL: [NSURL fileURLWithPath:oldPath]
     withOptions:     [NSDictionary dictionary]
     forClient:       nil];
   NSError*      err     = nil;
@@ -55,6 +56,7 @@ void receiveAppInstallNotification(CFNotificationCenterRef, void*, CFStringRef,
   NSDictionary* info = [NSDictionary dictionaryWithObjectsAndKeys:
     success, @"success",
     receipt, @"receipt",
+    oldPath, @"old-path",
     error,   @"error",   nil];
   CFNotificationCenterPostNotification(
     CFNotificationCenterGetDistributedCenter(),

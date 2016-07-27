@@ -4,6 +4,89 @@
 
 extern "C" CFNotificationCenterRef CFNotificationCenterGetDistributedCenter();
 
+void initializeApplicationStashDB() {
+  // Setup some storage for reference return values and default structures
+  BOOL    isDirectory = NO;
+  NSData* defaultData = [NSJSONSerialization
+    dataWithJSONObject: [NSDictionary dictionaryWithObjectsAndKeys:
+      [NSDictionary dictionary], @"apps", nil]
+    options:            nil
+    error:              nil];
+  // Ensure that `/var/db/stash` is a directory
+  if (![[NSFileManager defaultManager]
+      fileExistsAtPath: @"/var/db/stash"
+      isDirectory:      &isDirectory] || !isDirectory)
+    if (![[NSFileManager defaultManager]
+        createDirectoryAtPath:       @"/var/db/stash"
+        withIntermediateDirectories: YES
+        attributes:                  nil
+        error:                       nil])
+      fprintf(stderr, "ERROR: Could not initialize stash dir\n"), exit(1);
+  // Ensure that `/var/db/stash/apps.json` is a file
+  if (![[NSFileManager defaultManager]
+      fileExistsAtPath: @"/var/db/stash/apps.json"
+      isDirectory:      &isDirectory] || isDirectory)
+    if (![[NSFileManager defaultManager]
+        createFileAtPath: @"/var/db/stash/apps.json"
+        contents:         defaultData
+        attributes:       [NSDictionary dictionaryWithObjectsAndKeys:
+          @"root",                          NSFileOwnerAccountName,
+          @"wheel",                         NSFileGroupOwnerAccountName,
+          [NSNumber numberWithShort: 0660], NSFilePosixPermissions, nil]])
+      fprintf(stderr, "ERROR: Could not initialize stash db\n"), exit(1);
+  // Attempt to unserialize the contents of `/var/db/stash/apps.json`
+  NSDictionary *stash = [NSJSONSerialization
+    JSONObjectWithData:[NSData
+      dataWithContentsOfFile: @"/var/db/stash/apps.json"]
+    options:           nil
+    error:             nil];
+  // Ensure that `/var/db/stash/apps.json` contains the appropriate structure
+  if (![stash isKindOfClass:[NSDictionary class]] ||
+       [stash objectForKey:@"apps"] == nil)
+    if (![defaultData writeToFile:@"/var/db/stash/apps.json" atomically:YES])
+      fprintf(stderr, "ERROR: Could not re-initialize stash db\n"), exit(1);
+  // Ensure that `/usr/libexec/cydia/setnsfpn` is called successfully for
+  // `/var/db/stash` and `/var/containers/Bundle/Application`
+  for (NSString* path in @[@"/var/db/stash",
+                           @"/var/containers/Bundle/Application"]) {
+    NSTask* launch    = [[NSTask alloc] init];
+    launch.launchPath = @"/usr/libexec/cydia/setnsfpn";
+    launch.arguments  = @[path];
+    [launch launch];
+    [launch waitUntilExit];
+    // Require the termination status of the task to be successful
+    if ([launch terminationStatus] != 0)
+      fprintf(stderr, "ERROR: setnsfpn failed for %s",
+        [path UTF8String]), exit(1);
+   }
+}
+
+void addApplicationStashDB(NSString* ident, NSString* oldPath,
+    NSString* newPath) {
+  // Attempt to load the stash database
+  NSMutableDictionary *stash = [NSJSONSerialization
+    JSONObjectWithData:[NSData
+      dataWithContentsOfFile: @"/var/db/stash/apps.json"]
+    options:           NSJSONReadingMutableContainers
+    error:             nil];
+  // Ensure that the stash database contains the appropriate structure
+  if (![stash isKindOfClass:[NSMutableDictionary class]] ||
+       [stash objectForKey:@"apps"] == nil)
+    fprintf(stderr, "ERROR: Unable to load /var/db/stash/apps.json\n"), exit(1);
+  // Add the requested entry
+  [[stash objectForKey:@"apps"]
+    setObject: [NSDictionary dictionaryWithObjectsAndKeys:
+      oldPath, @"old-path",
+      newPath, @"new-path", nil]
+    forKey:    ident];
+  // Serialize the changes back to disk
+  [[NSJSONSerialization
+      dataWithJSONObject: stash
+      options:            nil
+      error:              nil]
+    writeToFile:@"/var/db/stash/apps.json" atomically:YES];
+}
+
 void receiveAppInstallResponseNotification(CFNotificationCenterRef, void*,
     CFStringRef, const void*, CFDictionaryRef userInfo) {
   // fprintf(stderr, "Received notification "
@@ -16,14 +99,20 @@ void receiveAppInstallResponseNotification(CFNotificationCenterRef, void*,
   NSDictionary* info    = [[receipt objectForKey:@"InstalledAppInfoArray"]
     objectAtIndex:0];
   NSString*     ident   = [info objectForKey:@"CFBundleIdentifier"];
-  NSString*     path    = [info objectForKey:@"Path"];
+  NSString*     oldPath =
+    [ (__bridge NSDictionary*)userInfo objectForKey:@"old-path"];
+  NSString*     newPath = [info objectForKey:@"Path"];
   NSString*     error   =
     [ (__bridge NSDictionary*)userInfo objectForKey:@"error"];
   if (success == NO) {
     fprintf(stderr, "\rERROR: %s\n", [error UTF8String]);
     exit(1);
-  } else fprintf(stderr, "\rInstalled %s to %s\n", [ident UTF8String],
-    [path UTF8String]), exit(0);
+  } else {
+    fprintf(stderr, "\rInstalled %s to %s\n", [ident UTF8String],
+      [newPath UTF8String]);
+    addApplicationStashDB(ident, oldPath, newPath);
+    exit(0);
+  }
 }
 
 int main(int argc, char **argv) {
@@ -38,6 +127,8 @@ int main(int argc, char **argv) {
     int status = [launch terminationStatus];
     // Only continue if launchctl was successful
     if (status == 0) {
+      // Initialize the stash database
+      initializeApplicationStashDB();
       // Register function `receiveAppInstallResponseNotification` for
       // notification `com.clayfreeman.appstash.installrespose` in the Darwin
       // notification center
@@ -53,7 +144,7 @@ int main(int argc, char **argv) {
       NSDictionary* info = [NSDictionary dictionaryWithObjectsAndKeys:
         path, @"application-path", nil];
       fprintf(stderr, "Stashing %s ...\n", [path UTF8String]);
-      // Dispatch the install request notification with the user info dictionary
+      // Dispatch the install request notification with the user info
       CFNotificationCenterPostNotification(
         CFNotificationCenterGetDistributedCenter(),
         CFSTR("com.clayfreeman.appstash.install"), NULL,

@@ -74,10 +74,6 @@ void receiveAppInstallNotification(CFNotificationCenterRef, void*, CFStringRef,
 }
 
 %hook MICodeSigningVerifier
-
-%end
-
-%hook MICodeSigningVerifier
 -(bool) performValidationWithError:(NSError**)err {
   // Fetch the `_bundle` property from the `MICodeSigningVerifier` instance to
   // fake the entitlements and signer identity

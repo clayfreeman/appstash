@@ -6,20 +6,24 @@ extern "C" CFNotificationCenterRef CFNotificationCenterGetDistributedCenter();
 
 void receiveAppInstallResponseNotification(CFNotificationCenterRef, void*,
     CFStringRef, const void*, CFDictionaryRef userInfo) {
-  // Log when receiving a notification
-  fprintf(stderr, "Received notification "
-    "'com.clayfreeman.appstash.installresponse'\n");
+  // fprintf(stderr, "Received notification "
+  //   "'com.clayfreeman.appstash.installresponse'\n");
   // Retreive the status and error information from the user info
   bool          success =
     [[(__bridge NSDictionary*)userInfo objectForKey:@"success"] boolValue];
-  // NSDictionary* receipt =
-  //   [ (__bridge NSDictionary*)userInfo objectForKey:@"receipt"];
+  NSDictionary* receipt =
+    [ (__bridge NSDictionary*)userInfo objectForKey:@"receipt"];
+  NSDictionary* info    = [[receipt objectForKey:@"InstalledAppInfoArray"]
+    objectAtIndex:0];
+  NSString*     ident   = [info objectForKey:@"CFBundleIdentifier"];
+  NSString*     path    = [info objectForKey:@"Path"];
   NSString*     error   =
     [ (__bridge NSDictionary*)userInfo objectForKey:@"error"];
   if (success == NO) {
-    fprintf(stderr, "ERROR: %s\n", [error UTF8String]);
+    fprintf(stderr, "\rERROR: %s\n", [error UTF8String]);
     exit(1);
-  } else fprintf(stderr, "Success\n"), exit(0);
+  } else fprintf(stderr, "\rInstalled %s to %s\n", [ident UTF8String],
+    [path UTF8String]), exit(0);
 }
 
 int main(int argc, char **argv) {
@@ -48,16 +52,18 @@ int main(int argc, char **argv) {
       // Build an NSDictionary from the user-provided path
       NSDictionary* info = [NSDictionary dictionaryWithObjectsAndKeys:
         path, @"application-path", nil];
-      fprintf(stderr, "Posting install request notification...\n");
+      fprintf(stderr, "Stashing %s ...\n", [path UTF8String]);
       // Dispatch the install request notification with the user info dictionary
       CFNotificationCenterPostNotification(
         CFNotificationCenterGetDistributedCenter(),
         CFSTR("com.clayfreeman.appstash.install"), NULL,
         (__bridge CFDictionaryRef)info, true);
       // Continue in a CF run loop while waiting for a response
+      fprintf(stderr, "waiting");
       CFRunLoopRun();
-    } else fprintf(stderr, "Could not start com.apple.mobile.installd\n");
-  } else fprintf(stderr, "Please specify the path to the staged application\n");
+    } else fprintf(stderr, "\rCould not start com.apple.mobile.installd\n");
+  } else fprintf(stderr, "\rPlease specify the path to the staged "
+    "application\n");
   return 1;
 }
 

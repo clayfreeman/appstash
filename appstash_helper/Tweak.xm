@@ -98,7 +98,8 @@ void receiveAppInstallNotification(CFNotificationCenterRef, void*, CFStringRef,
   // Override the `_signingInfo` property of `MICodeSigningVerifier` with the
   // faked codesigning information
   NSLog(@"OVERRIDING CODE SIGN CHECK for %@: Important for using installd to "
-    "stash system applications (via @clayfreeman1).", identifier);
+    "stash system applications (via @clayfreeman1, "
+    "appstash_helper.dylib).", identifier);
   object_setIvar(self, class_getInstanceVariable([self class], "_signingInfo"),
     _signingInfo);
   // Ensure the NSError is set to `nil`

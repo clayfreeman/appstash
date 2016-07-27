@@ -4,6 +4,41 @@
 
 extern "C" CFNotificationCenterRef CFNotificationCenterGetDistributedCenter();
 
+int runProcess(NSString* path, NSArray* args) {
+  // Setup the NSTask instance as specified
+  NSTask* launch = [[NSTask alloc] init];
+  launch.launchPath = path;
+  launch.arguments  = args;
+  [launch launch];
+  // Wait until the process exits and retrieve its exit status
+  [launch waitUntilExit];
+  return [launch terminationStatus];
+}
+
+NSMutableDictionary* loadStashDB() {
+  // Attempt to load the stash database
+  NSMutableDictionary *stash = [NSJSONSerialization
+    JSONObjectWithData:[NSData
+      dataWithContentsOfFile: @"/private/var/db/stash/apps.json"]
+    options:           NSJSONReadingMutableContainers
+    error:             nil];
+  // Ensure that the stash database contains the appropriate structure
+  if (![stash isKindOfClass:[NSMutableDictionary class]] ||
+       [stash objectForKey:@"apps"] == nil)
+    fprintf(stderr, "ERROR: Unable to load apps.json\n"), exit(1);
+  return stash;
+}
+
+void saveStashDB(NSDictionary* stash) {
+  // Attempt to write the stash to disk
+  if (![[NSJSONSerialization
+        dataWithJSONObject: stash
+        options:            nil
+        error:              nil]
+      writeToFile:@"/private/var/db/stash/apps.json" atomically:YES])
+    fprintf(stderr, "ERROR: Unable to save apps.json\n"), exit(1);
+}
+
 void initializeApplicationStashDB() {
   // Setup some storage for reference return values and default structures
   BOOL    isDirectory = NO;
@@ -12,51 +47,35 @@ void initializeApplicationStashDB() {
       [NSDictionary dictionary], @"apps", nil]
     options:            nil
     error:              nil];
-  // Ensure that `/var/db/stash` is a directory
+  // Ensure that `/private/var/db/stash` is a directory
   if (![[NSFileManager defaultManager]
-      fileExistsAtPath: @"/var/db/stash"
+      fileExistsAtPath: @"/private/var/db/stash"
       isDirectory:      &isDirectory] || !isDirectory)
     if (![[NSFileManager defaultManager]
-        createDirectoryAtPath:       @"/var/db/stash"
+        createDirectoryAtPath:       @"/private/var/db/stash"
         withIntermediateDirectories: YES
         attributes:                  nil
         error:                       nil])
       fprintf(stderr, "ERROR: Could not initialize stash dir\n"), exit(1);
-  // Ensure that `/var/db/stash/apps.json` is a file
+  // Ensure that `/private/var/db/stash/apps.json` is a file
   if (![[NSFileManager defaultManager]
-      fileExistsAtPath: @"/var/db/stash/apps.json"
+      fileExistsAtPath: @"/private/var/db/stash/apps.json"
       isDirectory:      &isDirectory] || isDirectory)
     if (![[NSFileManager defaultManager]
-        createFileAtPath: @"/var/db/stash/apps.json"
+        createFileAtPath: @"/private/var/db/stash/apps.json"
         contents:         defaultData
         attributes:       [NSDictionary dictionaryWithObjectsAndKeys:
           @"root",                          NSFileOwnerAccountName,
           @"wheel",                         NSFileGroupOwnerAccountName,
           [NSNumber numberWithShort: 0660], NSFilePosixPermissions, nil]])
       fprintf(stderr, "ERROR: Could not initialize stash db\n"), exit(1);
-  // Attempt to unserialize the contents of `/var/db/stash/apps.json`
-  NSDictionary *stash = [NSJSONSerialization
-    JSONObjectWithData:[NSData
-      dataWithContentsOfFile: @"/var/db/stash/apps.json"]
-    options:           nil
-    error:             nil];
-  // Ensure that `/var/db/stash/apps.json` contains the appropriate structure
-  if (![stash isKindOfClass:[NSDictionary class]] ||
-       [stash objectForKey:@"apps"] == nil)
-    if (![defaultData writeToFile:@"/var/db/stash/apps.json" atomically:YES])
-      fprintf(stderr, "ERROR: Could not re-initialize stash db\n"), exit(1);
   // Ensure that `/usr/libexec/cydia/setnsfpn` is called successfully for
-  // `/var/db/stash` and `/var/containers/Bundle/Application`
-  for (NSString* path in @[@"/var/db/stash",
-                           @"/var/containers/Bundle/Application"]) {
-    NSTask* launch    = [[NSTask alloc] init];
-    launch.launchPath = @"/usr/libexec/cydia/setnsfpn";
-    launch.arguments  = @[path];
-    [launch launch];
-    [launch waitUntilExit];
+  // `/private/var/db/stash` and `/private/var/containers/Bundle/Application`
+  for (NSString* path in @[@"/private/var/db/stash",
+                           @"/private/var/containers/Bundle/Application"]) {
     // Require the termination status of the task to be successful
-    if ([launch terminationStatus] != 0)
-      fprintf(stderr, "ERROR: setnsfpn failed for %s",
+    if (runProcess(@"/usr/libexec/cydia/setnsfpn", @[path]) != 0)
+      fprintf(stderr, "ERROR: setnsfpn failed for %s\n",
         [path UTF8String]), exit(1);
    }
 }
@@ -64,15 +83,7 @@ void initializeApplicationStashDB() {
 void addApplicationStashDB(NSString* ident, NSString* oldPath,
     NSString* newPath) {
   // Attempt to load the stash database
-  NSMutableDictionary *stash = [NSJSONSerialization
-    JSONObjectWithData:[NSData
-      dataWithContentsOfFile: @"/var/db/stash/apps.json"]
-    options:           NSJSONReadingMutableContainers
-    error:             nil];
-  // Ensure that the stash database contains the appropriate structure
-  if (![stash isKindOfClass:[NSMutableDictionary class]] ||
-       [stash objectForKey:@"apps"] == nil)
-    fprintf(stderr, "ERROR: Unable to load /var/db/stash/apps.json\n"), exit(1);
+  NSMutableDictionary* stash = loadStashDB();
   // Add the requested entry
   [[stash objectForKey:@"apps"]
     setObject: [NSDictionary dictionaryWithObjectsAndKeys:
@@ -80,11 +91,24 @@ void addApplicationStashDB(NSString* ident, NSString* oldPath,
       newPath, @"new-path", nil]
     forKey:    ident];
   // Serialize the changes back to disk
-  [[NSJSONSerialization
-      dataWithJSONObject: stash
-      options:            nil
-      error:              nil]
-    writeToFile:@"/var/db/stash/apps.json" atomically:YES];
+  saveStashDB(stash);
+}
+
+void delApplicationStashDB(NSString* ident) {
+  // Attempt to load the stash database
+  NSMutableDictionary* stash = loadStashDB();
+  // Remove the requested entry
+  [[stash objectForKey:@"apps"] setObject:[NSNull null] forKey:ident];
+  [[stash objectForKey:@"apps"] removeObjectForKey:ident];
+  // Serialize the changes back to disk
+  saveStashDB(stash);
+}
+
+NSArray* listApplicationsStashDB() {
+  // Attempt to load the stash database
+  NSDictionary* stash = loadStashDB();
+  // Return a list of all keys
+  return [[stash objectForKey:@"apps"] allKeys];
 }
 
 void receiveAppInstallResponseNotification(CFNotificationCenterRef, void*,
@@ -108,6 +132,7 @@ void receiveAppInstallResponseNotification(CFNotificationCenterRef, void*,
     fprintf(stderr, "\rERROR: %s\n", [error UTF8String]);
     exit(1);
   } else {
+    [[NSFileManager defaultManager] removeItemAtPath:oldPath error:nil];
     fprintf(stderr, "\rInstalled %s to %s\n", [ident UTF8String],
       [newPath UTF8String]);
     addApplicationStashDB(ident, oldPath, newPath);
@@ -115,46 +140,149 @@ void receiveAppInstallResponseNotification(CFNotificationCenterRef, void*,
   }
 }
 
+NSString* copyPath(NSString* src, NSString* dst) {
+  BOOL isDirectory = NO;
+  // Ensure that `dst` is a directory
+  if (![[NSFileManager defaultManager]
+      fileExistsAtPath: dst
+      isDirectory:      &isDirectory] || !isDirectory)
+    if (![[NSFileManager defaultManager]
+        createDirectoryAtPath:       dst
+        withIntermediateDirectories: YES
+        attributes:                  nil
+        error:                       nil])
+      fprintf(stderr, "ERROR: Could not initialize destination\n"), exit(1);
+  // Attempt to copy the source path to the destination path
+  if (![[NSFileManager defaultManager]
+      fileExistsAtPath: src
+      isDirectory:      &isDirectory])
+    fprintf(stderr, "ERROR: Could not find '%s'\n", [src UTF8String]), exit(1);
+  NSError* err = nil;
+  // Build the destination path from the last component of `src`
+  dst = [dst stringByAppendingPathComponent:[src lastPathComponent]];
+  if (![[NSFileManager defaultManager]
+      copyItemAtPath: src
+      toPath:         dst
+      error:          &err])
+    fprintf(stderr, "ERROR: %s, %s, %s\n", [src UTF8String], [dst UTF8String],
+      [[err localizedDescription] UTF8String]), exit(1);
+  return dst;
+}
+
+NSString* movePath(NSString* src, NSString* dst) {
+  BOOL isDirectory = NO;
+  // Ensure that `dst` is a directory
+  if (![[NSFileManager defaultManager]
+      fileExistsAtPath: dst
+      isDirectory:      &isDirectory] || !isDirectory)
+    if (![[NSFileManager defaultManager]
+        createDirectoryAtPath:       dst
+        withIntermediateDirectories: YES
+        attributes:                  nil
+        error:                       nil])
+      fprintf(stderr, "ERROR: Could not initialize destination\n"), exit(1);
+  // Attempt to move the source path to the destination path
+  if (![[NSFileManager defaultManager]
+      fileExistsAtPath: src
+      isDirectory:      &isDirectory])
+    fprintf(stderr, "ERROR: Could not find '%s'\n", [src UTF8String]), exit(1);
+  NSError* err = nil;
+  // Build the destination path from the last component of `src`
+  dst = [dst stringByAppendingPathComponent:[src lastPathComponent]];
+  if (![[NSFileManager defaultManager]
+      moveItemAtPath: src
+      toPath:         dst
+      error:          &err])
+    fprintf(stderr, "ERROR: %s, %s, %s\n", [src UTF8String], [dst UTF8String],
+      [[err localizedDescription] UTF8String]), exit(1);
+  return dst;
+}
+
+void stashPath(NSString* path) {
+  if (![path hasPrefix:@"/"])
+    fprintf(stderr, "ERROR: Expecting absolute path\n"), exit(1);
+  // Register function `receiveAppInstallResponseNotification` for
+  // notification `com.clayfreeman.appstash.installrespose` in the Darwin
+  // notification center
+  CFNotificationCenterAddObserver(
+    CFNotificationCenterGetDistributedCenter(),
+    NULL, receiveAppInstallResponseNotification,
+    CFSTR("com.clayfreeman.appstash.installresponse"), NULL,
+    CFNotificationSuspensionBehaviorDeliverImmediately);
+  fprintf(stderr, "Stashing %s ...\n", [path UTF8String]);
+  // Copy the provided path to the staging area
+  NSString* stagePath = copyPath(path,
+    @"/private/var/mobile/Media/PublicStaging");
+  // Build an NSDictionary from the user-provided path
+  NSDictionary* info = [NSDictionary dictionaryWithObjectsAndKeys:
+    stagePath, @"application-path",
+    path,      @"old-path",         nil];
+  // Dispatch the install request notification with the user info
+  CFNotificationCenterPostNotification(
+    CFNotificationCenterGetDistributedCenter(),
+    CFSTR("com.clayfreeman.appstash.install"), NULL,
+    (__bridge CFDictionaryRef)info, true);
+  // Continue in a CF run loop while waiting for a response
+  fprintf(stderr, "waiting");
+  CFRunLoopRun();
+}
+
+void unstashIdent(NSString* ident) {
+  // Load the stash database
+  NSDictionary* stash = loadStashDB();
+  // Find the requested identifier
+  NSDictionary* app   = [[stash objectForKey:@"apps"] objectForKey:ident];
+  if (app == nil) fprintf(stderr, "ERROR: Could not find stashed app "
+    "identifier (case sensitive)\n"), exit(1);
+  // Move the `new-path` to the `old-path`
+  NSString* src =  [app objectForKey:@"new-path"];
+  NSString* dst = [[app objectForKey:@"old-path"]
+    stringByDeletingLastPathComponent];
+  NSString* res = movePath(src, dst);
+  // Remove the app identifier from the stash database
+  delApplicationStashDB(ident);
+  fprintf(stderr, "Moved %s to %s\n", [ident UTF8String],
+    [res UTF8String]), exit(0);
+}
+
 int main(int argc, char **argv) {
   if (argc > 1) {
     // Use launchctl to start com.apple.mobile.installd
-    NSTask* launch = [[NSTask alloc] init];
-    launch.launchPath =   @"/bin/launchctl";
-    launch.arguments  = @[@"start", @"com.apple.mobile.installd"];
-    [launch launch];
-    // Wait until the process exits and retrieve its exit status
-    [launch waitUntilExit];
-    int status = [launch terminationStatus];
-    // Only continue if launchctl was successful
-    if (status == 0) {
+    if (runProcess( @"/bin/launchctl",
+        @[@"start", @"com.apple.mobile.installd"]) == 0) {
       // Initialize the stash database
       initializeApplicationStashDB();
-      // Register function `receiveAppInstallResponseNotification` for
-      // notification `com.clayfreeman.appstash.installrespose` in the Darwin
-      // notification center
-      CFNotificationCenterAddObserver(
-        CFNotificationCenterGetDistributedCenter(),
-        NULL, receiveAppInstallResponseNotification,
-        CFSTR("com.clayfreeman.appstash.installresponse"), NULL,
-        CFNotificationSuspensionBehaviorDeliverImmediately);
-      // Make an NSString from the user-provided app path argument
-      NSString*     path = [NSString stringWithCString:argv[1]
+      // Determine the requested action
+      NSString* action = [NSString stringWithCString:argv[1]
         encoding:NSASCIIStringEncoding];
-      // Build an NSDictionary from the user-provided path
-      NSDictionary* info = [NSDictionary dictionaryWithObjectsAndKeys:
-        path, @"application-path", nil];
-      fprintf(stderr, "Stashing %s ...\n", [path UTF8String]);
-      // Dispatch the install request notification with the user info
-      CFNotificationCenterPostNotification(
-        CFNotificationCenterGetDistributedCenter(),
-        CFSTR("com.clayfreeman.appstash.install"), NULL,
-        (__bridge CFDictionaryRef)info, true);
-      // Continue in a CF run loop while waiting for a response
-      fprintf(stderr, "waiting");
-      CFRunLoopRun();
-    } else fprintf(stderr, "\rCould not start com.apple.mobile.installd\n");
-  } else fprintf(stderr, "\rPlease specify the path to the staged "
-    "application\n");
+      if ([action isEqualToString:@"-a"]) {
+        if (argc > 2) {
+          // Get the second argument
+          NSString* path = [NSString stringWithCString:argv[2]
+            encoding:NSASCIIStringEncoding];
+          // Run the action
+          stashPath(path);
+        } else fprintf(stderr, "Missing application path argument\n"), exit(1);
+      } else if ([action isEqualToString:@"-l"]) {
+        NSArray* list = [listApplicationsStashDB()
+          sortedArrayUsingSelector:@selector(caseInsensitiveCompare:)];
+        for (NSString* ident in list)
+          fprintf(stderr, "%s\n", [ident UTF8String]);
+        exit(0);
+      } else if ([action isEqualToString:@"-r"]) {
+        // Get the second argument
+        NSString* ident = [NSString stringWithCString:argv[2]
+          encoding:NSASCIIStringEncoding];
+        // Run the action
+        unstashIdent(ident);
+      } else fprintf(stderr, "Unknown action '%s'\n", argv[1]);
+    } else fprintf(stderr, "Could not start com.apple.mobile.installd\n");
+  } else if (argc > 0)
+    fprintf(stderr, "Please specify an action:\n"
+      "  %s\n"
+      "    -a /path/to/app    # Add app to stash\n"
+      "    -l                 # List stashed apps\n"
+      "    -r com.example.app # Restore stashed app\n", argv[0]);
   return 1;
 }
 

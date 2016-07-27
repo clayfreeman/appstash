@@ -37,9 +37,11 @@ void receiveAppInstallNotification(CFNotificationCenterRef, void*, CFStringRef,
   NSLog(@"Received notification 'com.clayfreeman.appstash.install'");
   // Instantiate the MIInstaller class with the provided application path
   NSString* oldPath = [(__bridge NSDictionary*)userInfo
+    objectForKey:@"old-path"];
+  NSString* stagePath = [(__bridge NSDictionary*)userInfo
     objectForKey:@"application-path"];
   MIInstaller* installer = [NSClassFromString(@"MIInstaller")
-    installerForURL: [NSURL fileURLWithPath:oldPath]
+    installerForURL: [NSURL fileURLWithPath:stagePath]
     withOptions:     [NSDictionary dictionary]
     forClient:       nil];
   NSError*      err     = nil;

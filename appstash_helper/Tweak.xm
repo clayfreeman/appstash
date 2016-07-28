@@ -39,6 +39,10 @@ extern "C" CFNotificationCenterRef CFNotificationCenterGetDistributedCenter();
   validatedByFreeProfile: (bool)          validatedByFreeProfile;
 @end
 
+@interface MICodeSigningVerifier : NSObject
+@property(readonly) MICodeSigningInfo* signingInfo;
+@end
+
 void receiveAppInstallNotification(CFNotificationCenterRef, void*, CFStringRef,
     const void*, CFDictionaryRef userInfo) {
   // Log when receiving a notification
@@ -129,21 +133,24 @@ void receiveAppUninstallNotification(CFNotificationCenterRef, void*,
 }
 
 %hook MICodeSigningVerifier
+NSString*     identifier   = nil;
+NSDictionary* entitlements = nil;
 -(bool) performValidationWithError:(NSError**)err {
   // Fetch the `_bundle` property from the `MICodeSigningVerifier` instance to
   // fake the entitlements and signer identity
-  MIExecutableBundle* _bundle = nil;
-  object_getInstanceVariable(self, "_bundle", (void **)&_bundle);
+  MIExecutableBundle* _bundle =
+    MSHookIvar<MIExecutableBundle*>(self, "_bundle");
   // Fetch the bundle identifier from the `MIExecutableBundle` instance
-  NSString* identifier = [_bundle identifier];
+  identifier   = [_bundle identifier];
+  entitlements = [NSDictionary dictionaryWithObjectsAndKeys:
+    identifier, @"application-identifier", nil];
   // Create a fake `MICodeSigningInfo` to placate `installd`
-  MICodeSigningInfo* _signingInfo =
+  MSHookIvar<MIExecutableBundle*>(self, "_signingInfo") =
   [[NSClassFromString(@"MICodeSigningInfo") alloc]
     initWithSignerIdentity: identifier // Use the fake identifier for both the
     codeInfoIdentifier:     identifier // signer identity and code info
     // Create an entitlements dictionary with only `application-identifier`
-    entitlements:           [NSDictionary dictionaryWithObjectsAndKeys:
-      identifier, @"application-identifier", nil]
+    entitlements:           entitlements
     // Initialize the remaining properties of `MICodeSigningInfo` with
     // potentially insane values
     validatedByProfile:     NO
@@ -155,8 +162,6 @@ void receiveAppUninstallNotification(CFNotificationCenterRef, void*,
   NSLog(@"OVERRIDING CODE SIGN CHECK for %@: Important for using installd to "
     "stash system applications (via @clayfreeman1, "
     "appstash_helper.dylib).", identifier);
-  object_setIvar(self, class_getInstanceVariable([self class], "_signingInfo"),
-    _signingInfo);
   // Ensure the NSError is set to `nil`
   *err = nil;
   // Return `YES` to convey success
@@ -165,11 +170,10 @@ void receiveAppUninstallNotification(CFNotificationCenterRef, void*,
 
 %hook MIInstallableBundle
 -(bool) _checkCanInstallWithError:(NSError**)err {
-  NSError* localErr = nil;
-  bool retVal = %orig(&localErr);
+  bool retVal = %orig;
   // Pass through all errors not relating to being already installed
-  if ([localErr code] != 34) {
-    *err = localErr; return retVal; }
-  return YES;
+  if (err != nil && *err != nil && [*err code] == 34)
+    *err = nil, retVal = YES;
+  return retVal;
 }
 %end

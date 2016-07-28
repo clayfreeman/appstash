@@ -1,5 +1,3 @@
-// MIUninstaller
-
 #import <CoreFoundation/CoreFoundation.h>
 #import <Foundation/Foundation.h>
 #import <Foundation/NSTask.h>
@@ -113,35 +111,6 @@ NSArray* listApplicationsStashDB() {
   return [[stash objectForKey:@"apps"] allKeys];
 }
 
-void receiveAppInstallResponseNotification(CFNotificationCenterRef, void*,
-    CFStringRef, const void*, CFDictionaryRef userInfo) {
-  // fprintf(stderr, "Received notification "
-  //   "'com.clayfreeman.appstash.installresponse'\n");
-  // Retreive the status and error information from the user info
-  bool          success =
-    [[(__bridge NSDictionary*)userInfo objectForKey:@"success"] boolValue];
-  NSDictionary* receipt =
-    [ (__bridge NSDictionary*)userInfo objectForKey:@"receipt"];
-  NSDictionary* info    = [[receipt objectForKey:@"InstalledAppInfoArray"]
-    objectAtIndex:0];
-  NSString*     ident   = [info objectForKey:@"CFBundleIdentifier"];
-  NSString*     oldPath =
-    [ (__bridge NSDictionary*)userInfo objectForKey:@"old-path"];
-  NSString*     newPath = [info objectForKey:@"Path"];
-  NSString*     error   =
-    [ (__bridge NSDictionary*)userInfo objectForKey:@"error"];
-  if (success == NO) {
-    fprintf(stderr, "\rERROR: %s\n", [error UTF8String]);
-    exit(1);
-  } else {
-    [[NSFileManager defaultManager] removeItemAtPath:oldPath error:nil];
-    fprintf(stderr, "\rInstalled %s to %s\n", [ident UTF8String],
-      [newPath UTF8String]);
-    addApplicationStashDB(ident, oldPath, newPath);
-    exit(0);
-  }
-}
-
 NSString* copyPath(NSString* src, NSString* dst) {
   BOOL isDirectory = NO;
   // Ensure that `dst` is a directory
@@ -171,38 +140,70 @@ NSString* copyPath(NSString* src, NSString* dst) {
   return dst;
 }
 
-NSString* movePath(NSString* src, NSString* dst) {
-  BOOL isDirectory = NO;
-  // Ensure that `dst` is a directory
-  if (![[NSFileManager defaultManager]
-      fileExistsAtPath: dst
-      isDirectory:      &isDirectory] || !isDirectory)
-    if (![[NSFileManager defaultManager]
-        createDirectoryAtPath:       dst
-        withIntermediateDirectories: YES
-        attributes:                  nil
-        error:                       nil])
-      fprintf(stderr, "ERROR: Could not initialize destination\n"), exit(1);
-  // Attempt to move the source path to the destination path
-  if (![[NSFileManager defaultManager]
-      fileExistsAtPath: src
-      isDirectory:      &isDirectory])
-    fprintf(stderr, "ERROR: Could not find '%s'\n", [src UTF8String]), exit(1);
-  NSError* err = nil;
-  // Build the destination path from the last component of `src`
-  dst = [dst stringByAppendingPathComponent:[src lastPathComponent]];
-  if (![[NSFileManager defaultManager]
-      moveItemAtPath: src
-      toPath:         dst
-      error:          &err])
-    fprintf(stderr, "ERROR: %s, %s, %s\n", [src UTF8String], [dst UTF8String],
-      [[err localizedDescription] UTF8String]), exit(1);
-  return dst;
+void receiveAppInstallResponseNotification(CFNotificationCenterRef, void*,
+    CFStringRef, const void*, CFDictionaryRef usrInfo) {
+  // fprintf(stderr, "Received notification "
+  //   "'com.clayfreeman.appstash.installresponse'\n");
+  // Retreive the status and error information from the user info
+  NSDictionary* userInfo = (__bridge NSDictionary*)usrInfo;
+  bool          success  = [[userInfo objectForKey:@"success"] boolValue];
+  NSDictionary* receipt  = [ userInfo objectForKey:@"receipt"];
+  NSDictionary* info     = [[ receipt objectForKey:@"InstalledAppInfoArray"]
+    objectAtIndex:0];
+  NSString*     ident    = [     info objectForKey:@"CFBundleIdentifier"];
+  NSString*     oldPath  = [ userInfo objectForKey:@"old-path"];
+  NSString*     newPath  = [     info objectForKey:@"Path"];
+  NSString*     error    = [ userInfo objectForKey:@"error"];
+  if (success == NO) {
+    fprintf(stderr, "ERROR: %s\n", [error UTF8String]);
+    exit(1);
+  } else {
+    [[NSFileManager defaultManager] removeItemAtPath:oldPath error:nil];
+    fprintf(stderr, "Installed %s to %s\n", [ident UTF8String],
+      [newPath UTF8String]);
+    addApplicationStashDB(ident, oldPath, newPath);
+    exit(0);
+  }
+}
+
+void receiveAppUninstallResponseNotification(CFNotificationCenterRef, void*,
+    CFStringRef, const void*, CFDictionaryRef usrInfo) {
+  // fprintf(stderr, "Received notification "
+  //   "'com.clayfreeman.appstash.uninstallresponse'\n");
+  // Retreive the status and error information from the user info
+  NSDictionary* userInfo = (__bridge NSDictionary*)usrInfo;
+  bool          success  = [[userInfo objectForKey:@"success"] boolValue];
+  NSString*     ident    = [ userInfo objectForKey:@"application-identifier"];
+  NSString*     oldPath  = [ userInfo objectForKey:@"old-path"];
+  NSString*     newPath  = [ userInfo objectForKey:@"new-path"];
+  NSString*     error    = [ userInfo objectForKey:@"error"];
+  if (success == NO) {
+    fprintf(stderr, "ERROR: %s\n", [error UTF8String]);
+    exit(1);
+  } else {
+    copyPath(oldPath, [newPath stringByDeletingLastPathComponent]);
+    [[NSFileManager defaultManager] removeItemAtPath:oldPath error:nil];
+    fprintf(stderr, "Uninstalled %s to %s\n", [ident UTF8String],
+      [newPath UTF8String]);
+    delApplicationStashDB(ident);
+    exit(0);
+  }
 }
 
 void stashPath(NSString* path) {
   if (![path hasPrefix:@"/"])
     fprintf(stderr, "ERROR: Expecting absolute path\n"), exit(1);
+  // Create an array of App names to refuse to stash
+  NSArray* badApps = @[ @"Cydia.app", @"GameController.app", @"MobileCal.app",
+    @"MobileMail.app", @"MobileNotes.app", @"MobileTimer.app", @"Music.app",
+    @"Podcasts.app", @"Setup.app", @"Stocks.app", @"Web.app", @"WebApp1.app" ];
+  // If provided a bad app, error and exit
+  if ([badApps indexOfObjectPassingTest:^(id obj, NSUInteger idx, BOOL* stop) {
+        return (BOOL)([obj caseInsensitiveCompare:
+          [path lastPathComponent]] == NSOrderedSame);
+      }] != NSNotFound)
+    fprintf(stderr, "ERROR: Cowardly refusing to stash %s\n",
+      [path UTF8String]), exit(1);
   // Register function `receiveAppInstallResponseNotification` for
   // notification `com.clayfreeman.appstash.installrespose` in the Darwin
   // notification center
@@ -211,7 +212,7 @@ void stashPath(NSString* path) {
     NULL, receiveAppInstallResponseNotification,
     CFSTR("com.clayfreeman.appstash.installresponse"), NULL,
     CFNotificationSuspensionBehaviorDeliverImmediately);
-  fprintf(stderr, "Stashing %s ...\n", [path UTF8String]);
+  fprintf(stderr, "Stashing %s ... ", [path UTF8String]);
   // Copy the provided path to the staging area
   NSString* stagePath = copyPath(path,
     @"/private/var/mobile/Media/PublicStaging");
@@ -225,7 +226,7 @@ void stashPath(NSString* path) {
     CFSTR("com.clayfreeman.appstash.install"), NULL,
     (__bridge CFDictionaryRef)info, true);
   // Continue in a CF run loop while waiting for a response
-  fprintf(stderr, "waiting");
+  fprintf(stderr, "waiting\n");
   CFRunLoopRun();
 }
 
@@ -236,15 +237,33 @@ void unstashIdent(NSString* ident) {
   NSDictionary* app   = [[stash objectForKey:@"apps"] objectForKey:ident];
   if (app == nil) fprintf(stderr, "ERROR: Could not find stashed app "
     "identifier (case sensitive)\n"), exit(1);
-  // Move the `new-path` to the `old-path`
-  NSString* src =  [app objectForKey:@"new-path"];
-  NSString* dst = [[app objectForKey:@"old-path"]
-    stringByDeletingLastPathComponent];
-  NSString* res = movePath(src, dst);
-  // Remove the app identifier from the stash database
-  delApplicationStashDB(ident);
-  fprintf(stderr, "Moved %s to %s\n", [ident UTF8String],
-    [res UTF8String]), exit(0);
+  // Copy the `new-path` to a temporary directory
+  NSString* src = [app objectForKey:@"new-path"];
+  NSString* tmp = NSTemporaryDirectory();
+  NSString* dst = [app objectForKey:@"old-path"];
+  NSString* res = copyPath(src, tmp);
+  // Register function `receiveAppUninstallResponseNotification` for
+  // notification `com.clayfreeman.appstash.uninstallrespose` in the Darwin
+  // notification center
+  CFNotificationCenterAddObserver(
+    CFNotificationCenterGetDistributedCenter(),
+    NULL, receiveAppUninstallResponseNotification,
+    CFSTR("com.clayfreeman.appstash.uninstallresponse"), NULL,
+    CFNotificationSuspensionBehaviorDeliverImmediately);
+  fprintf(stderr, "Unstashing %s ... ", [src UTF8String]);
+  // Build an NSDictionary from the user-provided path
+  NSDictionary* info = [NSDictionary dictionaryWithObjectsAndKeys:
+    ident, @"application-identifier",
+    res,   @"old-path",
+    dst,   @"new-path", nil];
+  // Dispatch the install request notification with the user info
+  CFNotificationCenterPostNotification(
+    CFNotificationCenterGetDistributedCenter(),
+    CFSTR("com.clayfreeman.appstash.uninstall"), NULL,
+    (__bridge CFDictionaryRef)info, true);
+  // Continue in a CF run loop while waiting for a response
+  fprintf(stderr, "waiting\n");
+  CFRunLoopRun();
 }
 
 int main(int argc, char **argv) {

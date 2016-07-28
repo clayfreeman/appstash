@@ -1,4 +1,4 @@
-#include <CoreFoundation/CoreFoundation.h>
+#import <CoreFoundation/CoreFoundation.h>
 
 extern "C" CFNotificationCenterRef CFNotificationCenterGetDistributedCenter();
 
@@ -18,6 +18,14 @@ extern "C" CFNotificationCenterRef CFNotificationCenterGetDistributedCenter();
                 withOptions:     (NSDictionary*)       options
                 forClient:       (MIClientConnection*) client;
 -(bool) performInstallationWithError:(NSError**)err;
+@end
+
+@interface MIUninstaller : NSObject
+@property(readonly) NSDictionary *receipt;
++(MIUninstaller*) uninstallerForIdentifiers: (NSArray*)            url
+                  withOptions:               (NSDictionary*)       options
+                  forClient:                 (MIClientConnection*) client;
+-(bool) performUninstallationWithError:(NSError**)err;
 @end
 
 @interface MICodeSigningInfo : NSObject
@@ -67,6 +75,42 @@ void receiveAppInstallNotification(CFNotificationCenterRef, void*, CFStringRef,
   NSLog(@"Posted notification 'com.clayfreeman.appstash.installresponse'");
 }
 
+void receiveAppUninstallNotification(CFNotificationCenterRef, void*,
+    CFStringRef, const void*, CFDictionaryRef userInfo) {
+  // Log when receiving a notification
+  NSLog(@"Received notification 'com.clayfreeman.appstash.uninstall'");
+  // Instantiate the MIUninstaller class with the provided app identifier
+  NSString* oldPath = [(__bridge NSDictionary*)userInfo
+    objectForKey:@"old-path"];
+  NSString* newPath = [(__bridge NSDictionary*)userInfo
+    objectForKey:@"new-path"];
+  NSString* ident   = [(__bridge NSDictionary*)userInfo
+    objectForKey:@"application-identifier"];
+  MIUninstaller* uninstaller = [NSClassFromString(@"MIUninstaller")
+    uninstallerForIdentifiers: @[ident]
+    withOptions:               [NSDictionary dictionary]
+    forClient:                 nil];
+  NSError*      err     = nil;
+  // Attempt the uninstallation, expect a success indicator and potentially
+  // populated `NSError` instance
+  NSNumber*     success =
+    [NSNumber numberWithBool:[uninstaller performUninstallationWithError:&err]];
+  NSString*     error   =
+    [err isKindOfClass:[NSError class]] ? [err localizedDescription] : @"";
+  // Trigger response notification and pass through userInfo path
+  NSDictionary* info = [NSDictionary dictionaryWithObjectsAndKeys:
+    ident,   @"application-identifier",
+    success, @"success",
+    oldPath, @"old-path",
+    newPath, @"new-path",
+    error,   @"error",   nil];
+  CFNotificationCenterPostNotification(
+    CFNotificationCenterGetDistributedCenter(),
+    CFSTR("com.clayfreeman.appstash.uninstallresponse"), NULL,
+    (__bridge CFDictionaryRef)info, true);
+  NSLog(@"Posted notification 'com.clayfreeman.appstash.uninstallresponse'");
+}
+
 %ctor {
   // Register function `receiveAppInstallNotification` for notification
   // `com.clayfreeman.appstash.install` in the Darwin notification center
@@ -75,6 +119,13 @@ void receiveAppInstallNotification(CFNotificationCenterRef, void*, CFStringRef,
     CFSTR("com.clayfreeman.appstash.install"), NULL,
     CFNotificationSuspensionBehaviorDeliverImmediately);
   NSLog(@"Registered for notification 'com.clayfreeman.appstash.install'");
+  // Register function `receiveAppUninstallNotification` for notification
+  // `com.clayfreeman.appstash.uninstall` in the Darwin notification center
+  CFNotificationCenterAddObserver(CFNotificationCenterGetDistributedCenter(),
+    NULL, receiveAppUninstallNotification,
+    CFSTR("com.clayfreeman.appstash.uninstall"), NULL,
+    CFNotificationSuspensionBehaviorDeliverImmediately);
+  NSLog(@"Registered for notification 'com.clayfreeman.appstash.uninstall'");
 }
 
 %hook MICodeSigningVerifier
@@ -111,3 +162,14 @@ void receiveAppInstallNotification(CFNotificationCenterRef, void*, CFStringRef,
   // Return `YES` to convey success
   return YES;
 } %end
+
+%hook MIInstallableBundle
+-(bool) _checkCanInstallWithError:(NSError**)err {
+  NSError* localErr = nil;
+  bool retVal = %orig(&localErr);
+  // Pass through all errors not relating to being already installed
+  if ([localErr code] != 34) {
+    *err = localErr; return retVal; }
+  return YES;
+}
+%end

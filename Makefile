@@ -10,5 +10,5 @@ SUBPROJECTS += appstash_helper
 include $(THEOS_MAKE_PATH)/aggregate.mk
 
 after-install::
-	install.exec "killall -9 SpringBoard"
-	install.exec "killall -9 installd"
+	install.exec "killall -9 SpringBoard || exit 0"
+	install.exec "killall -9 installd || exit 0"

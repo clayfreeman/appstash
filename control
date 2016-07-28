@@ -1,9 +1,10 @@
 Package: com.clayfreeman.appstash
 Name: appstash
-Depends: 
-Version: 0.0.1
+Conflicts: org.coolstar.stash933
+Depends: firmware (>= 9.2), firmware (<= 9.3.3)
+Version: 1.0.0
 Architecture: iphoneos-arm
-Description: An awesome tool of some sort!!
+Description: Command line utility to facilitate system App stashing.
 Maintainer: Clay Freeman
 Author: Clay Freeman
 Section: System

@@ -3,7 +3,7 @@ Name: appstash
 Depiction: https://clayfreeman.github.io/stash-cmds/depiction.html
 Conflicts: org.coolstar.stash933
 Depends: coreutils, firmware (>= 9.2), firmware (<= 9.3.3), mobilesubstrate
-Version: 1.0.1
+Version: 1.0.2
 Architecture: iphoneos-arm
 Description: Command line utility to facilitate system App stashing.
 Maintainer: Clay Freeman

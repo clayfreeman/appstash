@@ -1,15 +1,15 @@
 Package: com.clayfreeman.appstash
-Version: 1.0.3
+Version: 1.0.4
 Architecture: iphoneos-arm
 Maintainer: Clay Freeman
 Installed-Size: 280
 Depends: coreutils, firmware (>= 9.2), firmware (<= 9.3.3), mobilesubstrate
 Conflicts: org.coolstar.stash933
-Filename: deb/com.clayfreeman.appstash_1.0.3_iphoneos-arm.deb
-Size: 21254
-MD5sum: d4b1bd54220d451342307196775e28b6
-SHA1: 5c401ca7ae84a56ff0afb7a4f3356db2f78bb2e3
-SHA256: 6658735991c22f52747d6d18b9542f26c7034284bc870a37ae158db17b1359fb
+Filename: deb/com.clayfreeman.appstash_1.0.4_iphoneos-arm.deb
+Size: 21236
+MD5sum: c953e0e2e3336d12f4e09ce1db3f94ed
+SHA1: fd69daa170c0227351c988ca0c5d0f11a0d98418
+SHA256: 9eb5458466f52a60bf1c8f24ce2e00b86ccd276145f17f419eda26d520ca6d80
 Section: Administration
 Priority: optional
 Description: Command line utility to facilitate system App stashing.

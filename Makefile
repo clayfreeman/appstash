@@ -1,6 +1,6 @@
 TARGET = iphone:9.0
 
-THEOS_PACKAGE_DIR_NAME = debs
+THEOS_PACKAGE_DIR_NAME = deb
 include $(THEOS)/makefiles/common.mk
 
 TOOL_NAME = appstash
